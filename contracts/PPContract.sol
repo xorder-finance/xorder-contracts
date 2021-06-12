@@ -4,7 +4,6 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/cryptography/draft-EIP712.sol";
 import "../interfaces/CERC20.sol";
 import "../interfaces/Comptroller.sol";
 
@@ -33,7 +32,6 @@ contract PPContract is Ownable {
     uint8 constant MAX_UNITS = 100;
     uint8 constant USER_FEE_UNIT = 97;
 
-    event Token(address token, uint256 i);
     constructor(ComptrollerInterface _comptroller, address _comp) {
         comptroller = _comptroller;
         COMP = _comp;
@@ -41,8 +39,11 @@ contract PPContract is Ownable {
         address[] memory _cTokens = _comptroller.getAllMarkets(); // get all cTokens and fill mapping ->
 
         for (uint256 i = 0; i < _cTokens.length; i++) { // <- underlying => cToken
-            address token = CErc20Interface(_cTokens[i]).underlying();
-            emit Token(token, i);
+            CErc20Interface ctoken = CErc20Interface(_cTokens[i]);
+            if (keccak256(bytes(ctoken.name())) == keccak256(bytes("Compound Ether"))) { // ignore cETH
+                continue;
+            }
+            address token = ctoken.underlying();
             tokens.push(token);
             cTokens[token] = _cTokens[i];
         }
