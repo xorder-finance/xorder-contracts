@@ -23,25 +23,12 @@ contract PPContract is Ownable {
         uint256 cRemaining;
     }
 
-    struct LOPOrder {
-        uint256 salt;
-        address makerAsset;
-        address takerAsset;
-        bytes makerAssetData; // (transferFrom.selector, signer, ______, makerAmount, ...)
-        bytes takerAssetData; // (transferFrom.selector, sender, signer, takerAmount, ...)
-        bytes getMakerAmount; // this.staticcall(abi.encodePacked(bytes, swapTakerAmount)) => (swapMakerAmount)
-        bytes getTakerAmount; // this.staticcall(abi.encodePacked(bytes, swapMakerAmount)) => (swapTakerAmount)
-        bytes predicate;      // this.staticcall(bytes) => (bool)
-        bytes permit;         // On first fill: permit.1.call(abi.encodePacked(permit.selector, permit.2))
-        bytes interaction;
-    }
-
     ComptrollerInterface immutable comptroller;
     address immutable COMP;
     
     mapping(address => address) private cTokens; // token => cToken
     address[] public tokens; // supported tokens array
-    mapping(bytes32 => Order) private orders; // keccak(abi.encode(LOPOrder)) => Order
+    mapping(bytes32 => Order) private orders; // orderHash => Order
 
     uint8 constant MAX_UNITS = 100;
     uint8 constant USER_FEE_UNIT = 97;
@@ -67,7 +54,7 @@ contract PPContract is Ownable {
         address takerAsset,
         uint256 makingAmount,
         uint256 takingAmount,
-        bytes memory interactiveData // abi.encode(keccak256(abi.encode(order)))
+        bytes memory interactiveData // abi.encode(orderHash)
     ) external {
         makerAsset;
         takerAsset;
@@ -84,9 +71,7 @@ contract PPContract is Ownable {
 
     /// @notice sends user tokens to Compound and stores asset, amount, user
     /// called after order creation
-    function createOrder(LOPOrder memory order, uint256 amount) external {
-        bytes32 orderHash = keccak256(abi.encode(order));
-        address asset = order.makerAsset;
+    function createOrder(bytes32 orderHash, address asset, uint256 amount) external {
         require(orders[orderHash].user == address(0x0), "order is already exist");
         require(cTokens[asset] != address(0x0), "unsupported assert");
 
@@ -107,8 +92,7 @@ contract PPContract is Ownable {
 
     /// @notice withdraws all user funds from Compound, sends funds + fee to user
     /// called before cancelling order on limit order protocol 
-    function cancelOrder(LOPOrder memory order) external {
-        bytes32 orderHash = keccak256(abi.encode(order));
+    function cancelOrder(bytes32 orderHash) external {
         require(orders[orderHash].user != address(0x0), "order should exist");
         
         _withdrawCompound(orderHash, orders[orderHash].remaining); // withdraw all funds from compound
