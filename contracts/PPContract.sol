@@ -39,8 +39,9 @@ contract PPContract is Ownable {
     ComptrollerInterface immutable comptroller;
     address immutable COMP;
     
-    mapping(address => address) private cTokens;
-    mapping(bytes32 => Order) private orders;
+    mapping(address => address) private cTokens; // token => cToken
+    address[] public tokens; // supported tokens array
+    mapping(bytes32 => Order) private orders; // keccak(abi.encode(LOPOrder)) => Order
 
     uint8 constant MAX_UNITS = 100;
     uint8 constant USER_FEE_UNIT = 97;
@@ -50,7 +51,9 @@ contract PPContract is Ownable {
         COMP = _comp;
         address[] memory _cTokens = _comptroller.getAllMarkets(); // get all cTokens and fill mapping ->
         for (uint256 i = 0; i < _cTokens.length; i++) { // <- underlying => cToken
-            cTokens[CErc20Interface(_cTokens[i]).underlying()] = _cTokens[i];
+            address token = CErc20Interface(_cTokens[i]).underlying();
+            tokens.push(token);
+            cTokens[token] = _cTokens[i];
         }
     }
     
@@ -62,6 +65,9 @@ contract PPContract is Ownable {
         uint256 takingAmount,
         bytes memory interactiveData // abi.encode(keccak256(abi.encode(order)))
     ) external {
+        makerAsset;
+        takerAsset;
+        makingAmount;
         bytes32 orderHash = abi.decode(interactiveData, (bytes32));
         _withdrawCompound(orderHash, takingAmount);
         bool filled = false;
@@ -104,6 +110,20 @@ contract PPContract is Ownable {
         _withdrawCompound(orderHash, orders[orderHash].remaining); // withdraw all funds from compound
         delete orders[orderHash];
         emit OrderCancelled(orderHash);
+    }
+
+    /// @notice send all free assets + COMP(included) to Compound
+    function makeMoney() external {
+        comptroller.claimComp(address(this));
+        // iterate through all tokens trying to find free money
+        for (uint256 i = 0; i < tokens.length; i++) {
+            uint256 balance = IERC20(tokens[i]).balanceOf(address(this));
+            if (balance == 0) {
+                continue;
+            }
+            // send them to work in Compound
+            require(CErc20Interface(cTokens[tokens[i]]).mint(balance) == 0, "compound mint error"); 
+        }
     }
 
     /// @notice withdraws *amount* underlying from + fee from Compound, sends to user funds
