@@ -81,7 +81,7 @@ contract PPContract is Ownable {
         IERC20(asset).safeApprove(cToken, amount);
         uint256 cBalanceBefore = CErc20Interface(cToken).balanceOf(address(this));
 
-        require(CErc20Interface(cToken).mint(amount) != 0, "comptroller mint error"); // send tokens to compound
+        require(CErc20Interface(cToken).mint(amount) == 0, "comptroller mint error"); // send tokens to compound
 
         uint256 cBalanceAfter = CErc20Interface(cToken).balanceOf(address(this));
         orders[orderHash].user = msg.sender;
@@ -142,5 +142,9 @@ contract PPContract is Ownable {
         uint256 userFee = (claimedUnderlying - amountToWithdraw) * USER_FEE_UNIT / MAX_UNITS;
  
         IERC20(asset).safeTransfer(user, amountToWithdraw + userFee); // send to user amount + fee (earned in Compound)
+    }
+
+    function isValidSignature(bytes32 hash, bytes memory signature) public view returns(bytes4) {
+        return this.isValidSignature.selector;
     }
 }
