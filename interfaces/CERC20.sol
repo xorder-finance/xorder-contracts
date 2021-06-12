@@ -2,6 +2,8 @@
 pragma solidity ^0.8.0;
 
 abstract contract CErc20Interface {
+    address public underlying;
+
     function mint(uint mintAmount) virtual external returns (uint);
     function redeem(uint redeemTokens) virtual external returns (uint);
     function redeemUnderlying(uint redeemAmount) virtual external returns (uint);
