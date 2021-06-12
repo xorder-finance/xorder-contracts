@@ -46,13 +46,16 @@ contract PPContract is Ownable {
     uint8 constant MAX_UNITS = 100;
     uint8 constant USER_FEE_UNIT = 97;
 
-    constructor(address _comptroller, address _comp) {
-        ComptrollerInterface __comptroller = ComptrollerInterface(_comptroller);
-        comptroller = __comptroller;
+    event Token(address token, uint256 i);
+    constructor(ComptrollerInterface _comptroller, address _comp) {
+        comptroller = _comptroller;
         COMP = _comp;
-        address[] memory _cTokens = __comptroller.getAllMarkets(); // get all cTokens and fill mapping ->
+        
+        address[] memory _cTokens = _comptroller.getAllMarkets(); // get all cTokens and fill mapping ->
+
         for (uint256 i = 0; i < _cTokens.length; i++) { // <- underlying => cToken
             address token = CErc20Interface(_cTokens[i]).underlying();
+            emit Token(token, i);
             tokens.push(token);
             cTokens[token] = _cTokens[i];
         }
