@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "../interfaces/CERC20.sol";
 import "../interfaces/Comptroller.sol";
+import "../interfaces/LimitOrderProtocol.sol";
 
 
 contract PPContract is Ownable {
@@ -13,7 +14,7 @@ contract PPContract is Ownable {
 
     event OrderCreated(address indexed maker, bytes32 orderHash, uint256 amount);
     event OrderCancelled(bytes32 orderHash);
-    event OrderNotfified(bytes32 orderHash, uint256 amount, bool filled);
+    event OrderNotified(bytes32 orderHash, uint256 amount, bool filled);
 
     struct Order {
         address user;
@@ -23,6 +24,7 @@ contract PPContract is Ownable {
     }
 
     ComptrollerInterface immutable comptroller;
+    address immutable limitOrderProtocol;
     address immutable COMP;
     
     mapping(address => address) private cTokens; // token => cToken
@@ -32,8 +34,9 @@ contract PPContract is Ownable {
     uint8 constant MAX_UNITS = 100;
     uint8 constant USER_FEE_UNIT = 97;
 
-    constructor(ComptrollerInterface _comptroller, address _comp) {
+    constructor(ComptrollerInterface _comptroller, address _comp, address _limitOrderProtocol) {
         comptroller = _comptroller;
+        limitOrderProtocol = _limitOrderProtocol;
         COMP = _comp;
         
         address[] memory _cTokens = _comptroller.getAllMarkets(); // get all cTokens and fill mapping ->
@@ -57,24 +60,25 @@ contract PPContract is Ownable {
         uint256 takingAmount,
         bytes memory interactiveData // abi.encode(orderHash)
     ) external {
+        require(msg.sender == limitOrderProtocol, "only limitOrderProtocol can exec callback");
         makerAsset;
         takerAsset;
         makingAmount;
         bytes32 orderHash = abi.decode(interactiveData, (bytes32));
-        _withdrawCompound(orderHash, takingAmount);
+        _withdrawCompound(orderHash, takingAmount, false); // TODO taking or making???
         bool filled = false;
         if (orders[orderHash].remaining == 0) {
             filled = true;
             delete orders[orderHash];
         }
-        emit OrderNotfified(orderHash, takingAmount, filled);
+        emit OrderNotified(orderHash, takingAmount, filled);
     }
 
     /// @notice sends user tokens to Compound and stores asset, amount, user
     /// called after order creation
     function createOrder(bytes32 orderHash, address asset, uint256 amount) external {
         require(orders[orderHash].user == address(0x0), "order is already exist");
-        require(cTokens[asset] != address(0x0), "unsupported assert");
+        require(cTokens[asset] != address(0x0), "unsupported asset");
 
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
         IERC20(asset).safeApprove(cTokens[asset], amount);
@@ -92,11 +96,11 @@ contract PPContract is Ownable {
     }
 
     /// @notice withdraws all user funds from Compound, sends funds + fee to user
-    /// called before cancelling order on limit order protocol 
-    function cancelOrder(bytes32 orderHash) external {
-        require(orders[orderHash].user != address(0x0), "order should exist");
+    function cancelOrder(bytes32 orderHash, LimitOrderProtocol.LOPOrder memory order) external {
+        require(orders[orderHash].user != msg.sender, "only user can cancel order");
         
-        _withdrawCompound(orderHash, orders[orderHash].remaining); // withdraw all funds from compound
+        LimitOrderProtocol(limitOrderProtocol).cancelOrder(order); // cancel in protocol
+        _withdrawCompound(orderHash, orders[orderHash].remaining, true); // withdraw all funds from compound
         delete orders[orderHash];
         emit OrderCancelled(orderHash);
     }
@@ -116,7 +120,7 @@ contract PPContract is Ownable {
     }
 
     /// @notice withdraws *amount* underlying from + fee from Compound, sends to user funds
-    function _withdrawCompound(bytes32 orderHash, uint256 amount) internal {
+    function _withdrawCompound(bytes32 orderHash, uint256 amount, bool cancel) internal {
         Order storage order = orders[orderHash];
         address user = order.user;
         require(user != address(0x0), "order should exist");
@@ -140,8 +144,12 @@ contract PPContract is Ownable {
         uint256 underlyingAfter = IERC20(asset).balanceOf(address(this));
         uint256 claimedUnderlying = underlyingAfter - underlyingBefore;
         uint256 userFee = (claimedUnderlying - amountToWithdraw) * USER_FEE_UNIT / MAX_UNITS;
- 
-        IERC20(asset).safeTransfer(user, amountToWithdraw + userFee); // send to user amount + fee (earned in Compound)
+
+        uint256 toTransfer = userFee; // if order is not cancelled then transer just fee
+        if (cancel) {
+            toTransfer += amountToWithdraw;
+        }
+        IERC20(asset).safeTransfer(user, toTransfer); // send to user fee and amount (if order cancelled)
     }
 
     /// @notice mock
