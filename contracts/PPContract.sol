@@ -77,13 +77,13 @@ contract PPContract is Ownable {
         require(cTokens[asset] != address(0x0), "unsupported assert");
 
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
-        address cToken = cTokens[asset];
-        IERC20(asset).safeApprove(cToken, amount);
-        uint256 cBalanceBefore = CErc20Interface(cToken).balanceOf(address(this));
+        IERC20(asset).safeApprove(cTokens[asset], amount);
+        CErc20Interface cToken = CErc20Interface(cTokens[asset]);
+        uint256 cBalanceBefore = cToken.balanceOf(address(this));
 
-        require(CErc20Interface(cToken).mint(amount) == 0, "comptroller mint error"); // send tokens to compound
+        require(cToken.mint(amount) == 0, "comptroller mint error"); // send tokens to compound
 
-        uint256 cBalanceAfter = CErc20Interface(cToken).balanceOf(address(this));
+        uint256 cBalanceAfter = cToken.balanceOf(address(this));
         orders[orderHash].user = msg.sender;
         orders[orderHash].asset = asset;
         orders[orderHash].remaining = amount; // unfilled amount of order
@@ -144,6 +144,7 @@ contract PPContract is Ownable {
         IERC20(asset).safeTransfer(user, amountToWithdraw + userFee); // send to user amount + fee (earned in Compound)
     }
 
+    /// @notice mock
     function isValidSignature(bytes32 hash, bytes memory signature) public view returns(bytes4) {
         return this.isValidSignature.selector;
     }
