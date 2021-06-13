@@ -164,40 +164,40 @@ contract PPContract is Ownable, EIP712Alien {
 
     /// @notice validate signature from Limit Order Protocol, checks also asset and amount consistency
     function isValidSignature(bytes32 hash, bytes memory signature) external view returns(bytes4) {
-        // LimitOrderProtocol.LOPOrder memory order = abi.decode(signature, (LimitOrderProtocol.LOPOrder));
+        LimitOrderProtocol.LOPOrder memory order = abi.decode(signature, (LimitOrderProtocol.LOPOrder));
 
-        // uint256 salt;
-        // address makerAsset;
-        // address takerAsset;
-        // bytes memory makerAssetData;
-        // bytes memory takerAssetData;
-        // bytes memory getMakerAmount;
-        // bytes memory getTakerAmount;
-        // bytes memory predicate;
-        // bytes memory permit;
-        // bytes memory interaction;
+        uint256 salt;
+        address makerAsset;
+        address takerAsset;
+        bytes memory makerAssetData;
+        bytes memory takerAssetData;
+        bytes memory getMakerAmount;
+        bytes memory getTakerAmount;
+        bytes memory predicate;
+        bytes memory permit;
+        bytes memory interaction;
 
-        // assembly {  // solhint-disable-line no-inline-assembly
-        //     salt := mload(add(signature, 0x40))
-        //     makerAsset := mload(add(signature, 0x60))
-        //     takerAsset := mload(add(signature, 0x80))
-        //     makerAssetData := add(add(signature, 0x40), mload(add(signature, 0xA0)))
-        //     takerAssetData := add(add(signature, 0x40), mload(add(signature, 0xC0)))
-        //     getMakerAmount := add(add(signature, 0x40), mload(add(signature, 0xE0)))
-        //     getTakerAmount := add(add(signature, 0x40), mload(add(signature, 0x100)))
-        //     predicate := add(add(signature, 0x40), mload(add(signature, 0x120)))
-        //     permit := add(add(signature, 0x40), mload(add(signature, 0x140)))
-        //     interaction := add(add(signature, 0x40), mload(add(signature, 0x160)))
-        // }
+        assembly {  // solhint-disable-line no-inline-assembly
+            salt := mload(add(signature, 0x40))
+            makerAsset := mload(add(signature, 0x60))
+            takerAsset := mload(add(signature, 0x80))
+            makerAssetData := add(add(signature, 0x40), mload(add(signature, 0xA0)))
+            takerAssetData := add(add(signature, 0x40), mload(add(signature, 0xC0)))
+            getMakerAmount := add(add(signature, 0x40), mload(add(signature, 0xE0)))
+            getTakerAmount := add(add(signature, 0x40), mload(add(signature, 0x100)))
+            predicate := add(add(signature, 0x40), mload(add(signature, 0x120)))
+            permit := add(add(signature, 0x40), mload(add(signature, 0x140)))
+            interaction := add(add(signature, 0x40), mload(add(signature, 0x160)))
+        }
 
-        // bytes32 orderHash = abi.decode(interaction, (bytes32));
-        // Order storage _order = orders[orderHash];
-        // require( // validate maker amount, address, asset address
-        //     makerAsset == _order.asset && makerAssetData.decodeUint256(_AMOUNT_INDEX) == _order.remaining &&
-        //     makerAssetData.decodeAddress(_FROM_INDEX) == address(this) &&
-        //     _hash(salt, makerAsset, takerAsset, makerAssetData, takerAssetData, getMakerAmount, getTakerAmount, predicate, permit, interaction) == hash,
-        //     "bad order"
-        // );
+        bytes32 orderHash = abi.decode(interaction, (bytes32));
+        Order storage _order = orders[orderHash];
+        require( // validate maker amount, address, asset address
+            makerAsset == _order.asset && makerAssetData.decodeUint256(_AMOUNT_INDEX) == _order.remaining &&
+            makerAssetData.decodeAddress(_FROM_INDEX) == address(this) &&
+            _hash(salt, makerAsset, takerAsset, makerAssetData, takerAssetData, getMakerAmount, getTakerAmount, predicate, permit, interaction) == hash,
+            "bad order"
+        );
 
 
         return this.isValidSignature.selector;
