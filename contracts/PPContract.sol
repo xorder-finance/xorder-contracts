@@ -7,10 +7,13 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "../interfaces/CERC20.sol";
 import "../interfaces/Comptroller.sol";
 import "../interfaces/LimitOrderProtocol.sol";
+import "./EIP712Alien.sol";
+import "./ArgumentsDecoder.sol";
 
 
-contract PPContract is Ownable {
+contract PPContract is Ownable, EIP712Alien {
     using SafeERC20 for IERC20;
+    using ArgumentsDecoder for bytes;
 
     event OrderCreated(address indexed maker, bytes32 orderHash, uint256 amount);
     event OrderCancelled(bytes32 orderHash);
@@ -25,6 +28,14 @@ contract PPContract is Ownable {
         uint256 toWithdraw;
     }
 
+    bytes32 constant public LIMIT_ORDER_TYPEHASH = keccak256(
+        "Order(uint256 salt,address makerAsset,address takerAsset,bytes makerAssetData,bytes takerAssetData,bytes getMakerAmount,bytes getTakerAmount,bytes predicate,bytes permit,bytes interaction)"
+    );
+
+    uint256 constant private _FROM_INDEX = 0;
+    uint256 constant private _TO_INDEX = 1;
+    uint256 constant private _AMOUNT_INDEX = 2;
+
     ComptrollerInterface immutable comptroller;
     address immutable limitOrderProtocol;
     address immutable COMP;
@@ -36,7 +47,8 @@ contract PPContract is Ownable {
     uint8 constant MAX_UNITS = 100;
     uint8 constant USER_FEE_UNIT = 97;
 
-    constructor(ComptrollerInterface _comptroller, address _comp, address _limitOrderProtocol) {
+    constructor(ComptrollerInterface _comptroller, address _comp, address _limitOrderProtocol) 
+        EIP712Alien(_limitOrderProtocol, "1inch Limit Order Protocol", "1") {
         comptroller = _comptroller;
         limitOrderProtocol = _limitOrderProtocol;
         COMP = _comp;
@@ -53,8 +65,12 @@ contract PPContract is Ownable {
         require(msg.sender == limitOrderProtocol, "only limitOrderProtocol can exec callback");
         makerAsset;
         takingAmount;
-        bytes32 orderHash = abi.decode(interactiveData, (bytes32));
+        bytes32 orderHash;
+        assembly {  // solhint-disable-line no-inline-assembly
+            orderHash := mload(add(interactiveData, 32))
+        }
         _withdrawCompound(orderHash, makingAmount, false); // withdraw tokens from compound, send fees to user
+        IERC20(makerAsset).safeApprove(limitOrderProtocol, 0);
         IERC20(makerAsset).safeApprove(limitOrderProtocol, makingAmount); // approve tokens for limitOrderProtocol
         emit OrderNotified(orderHash, makingAmount);
     }
@@ -66,6 +82,7 @@ contract PPContract is Ownable {
         require(cTokens[asset] != address(0x0), "unsupported asset");
 
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
+        IERC20(asset).safeApprove(cTokens[asset], 0);
         IERC20(asset).safeApprove(cTokens[asset], amount);
         CErc20Interface cToken = CErc20Interface(cTokens[asset]);
         uint256 cBalanceBefore = cToken.balanceOf(address(this));
@@ -78,6 +95,11 @@ contract PPContract is Ownable {
         orders[orderHash].remaining = amount; // unfilled amount of order
         orders[orderHash].cRemaining = cBalanceAfter - cBalanceBefore; // user ctokens remaining
         emit OrderCreated(msg.sender, orderHash, amount);
+    }
+
+    /// @notice just proxy to Limit Order Protocol
+    function fillOrder(LimitOrderProtocol.LOPOrder memory order, bytes calldata signature, uint256 makingAmount, uint256 takingAmount, uint256 thresholdAmount) external returns(uint256, uint256) {
+        return LimitOrderProtocol(limitOrderProtocol).fillOrder(order, signature, makingAmount, takingAmount, thresholdAmount);
     }
 
     /// @notice withdraws all user funds from Compound, sends funds + fee to user
@@ -104,6 +126,7 @@ contract PPContract is Ownable {
         }
     }
 
+    /// @notice fill tokens(allowed) array and tokens => cTokens mapping
     function init() onlyOwner external {
         if (tokens.length > 0) {
             return;
@@ -137,6 +160,47 @@ contract PPContract is Ownable {
             emit OrderWithdrawed(ordersHashes[i], order.toWithdraw);
             delete orders[ordersHashes[i]];
         }
+    }
+
+    /// @notice validate signature from Limit Order Protocol, checks also asset and amount consistency
+    function isValidSignature(bytes32 hash, bytes memory signature) external view returns(bytes4) {
+        // LimitOrderProtocol.LOPOrder memory order = abi.decode(signature, (LimitOrderProtocol.LOPOrder));
+
+        // uint256 salt;
+        // address makerAsset;
+        // address takerAsset;
+        // bytes memory makerAssetData;
+        // bytes memory takerAssetData;
+        // bytes memory getMakerAmount;
+        // bytes memory getTakerAmount;
+        // bytes memory predicate;
+        // bytes memory permit;
+        // bytes memory interaction;
+
+        // assembly {  // solhint-disable-line no-inline-assembly
+        //     salt := mload(add(signature, 0x40))
+        //     makerAsset := mload(add(signature, 0x60))
+        //     takerAsset := mload(add(signature, 0x80))
+        //     makerAssetData := add(add(signature, 0x40), mload(add(signature, 0xA0)))
+        //     takerAssetData := add(add(signature, 0x40), mload(add(signature, 0xC0)))
+        //     getMakerAmount := add(add(signature, 0x40), mload(add(signature, 0xE0)))
+        //     getTakerAmount := add(add(signature, 0x40), mload(add(signature, 0x100)))
+        //     predicate := add(add(signature, 0x40), mload(add(signature, 0x120)))
+        //     permit := add(add(signature, 0x40), mload(add(signature, 0x140)))
+        //     interaction := add(add(signature, 0x40), mload(add(signature, 0x160)))
+        // }
+
+        // bytes32 orderHash = abi.decode(interaction, (bytes32));
+        // Order storage _order = orders[orderHash];
+        // require( // validate maker amount, address, asset address
+        //     makerAsset == _order.asset && makerAssetData.decodeUint256(_AMOUNT_INDEX) == _order.remaining &&
+        //     makerAssetData.decodeAddress(_FROM_INDEX) == address(this) &&
+        //     _hash(salt, makerAsset, takerAsset, makerAssetData, takerAssetData, getMakerAmount, getTakerAmount, predicate, permit, interaction) == hash,
+        //     "bad order"
+        // );
+
+
+        return this.isValidSignature.selector;
     }
 
     /// @notice withdraws *amount* underlying from + fee from Compound, sends to user funds
@@ -174,8 +238,34 @@ contract PPContract is Ownable {
         IERC20(asset).safeTransfer(user, toTransfer); // send to user fee and amount (if order cancelled)
     }
 
-    /// @notice mock
-    function isValidSignature(bytes32 hash, bytes memory signature) public view returns(bytes4) {
-        return this.isValidSignature.selector;
+    function _hash(
+        uint256 salt,
+        address makerAsset,
+        address takerAsset,
+        bytes memory makerAssetData,
+        bytes memory takerAssetData,
+        bytes memory getMakerAmount,
+        bytes memory getTakerAmount,
+        bytes memory predicate,
+        bytes memory permit,
+        bytes memory interaction
+    ) internal view returns(bytes32) {
+        return _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    LIMIT_ORDER_TYPEHASH,
+                    salt,
+                    makerAsset,
+                    takerAsset,
+                    keccak256(makerAssetData),
+                    keccak256(takerAssetData),
+                    keccak256(getMakerAmount),
+                    keccak256(getTakerAmount),
+                    keccak256(predicate),
+                    keccak256(permit),
+                    keccak256(interaction)
+                )
+            )
+        );
     }
 }

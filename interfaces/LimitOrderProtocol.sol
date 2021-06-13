@@ -15,5 +15,6 @@ interface LimitOrderProtocol {
         bytes interaction;
     }
 
+    function fillOrder(LOPOrder memory order, bytes calldata signature, uint256 makingAmount, uint256 takingAmount, uint256 thresholdAmount) external returns(uint256, uint256);
     function cancelOrder(LOPOrder memory order) external;
 }
