@@ -189,8 +189,10 @@ contract PPContract is Ownable, EIP712Alien {
             permit := add(add(signature, 0x40), mload(add(signature, 0x140)))
             interaction := add(add(signature, 0x40), mload(add(signature, 0x160)))
         }
-
-        bytes32 orderHash = abi.decode(interaction, (bytes32));
+        bytes32 orderHash;
+        assembly {  // solhint-disable-line no-inline-assembly
+            orderHash := mload(add(interaction, 32))
+        }
         Order storage _order = orders[orderHash];
         require( // validate maker amount, address, asset address
             makerAsset == _order.asset && makerAssetData.decodeUint256(_AMOUNT_INDEX) == _order.remaining &&
