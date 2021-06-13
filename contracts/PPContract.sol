@@ -14,13 +14,15 @@ contract PPContract is Ownable {
 
     event OrderCreated(address indexed maker, bytes32 orderHash, uint256 amount);
     event OrderCancelled(bytes32 orderHash);
-    event OrderNotified(bytes32 orderHash, uint256 amount, bool filled);
+    event OrderNotified(bytes32 orderHash, uint256 amount);
+    event OrderWithdrawed(bytes32 orderHash, uint256 amount);
 
     struct Order {
         address user;
         address asset;
         uint256 remaining;
         uint256 cRemaining;
+        uint256 toWithdraw;
     }
 
     ComptrollerInterface immutable comptroller;
@@ -62,16 +64,11 @@ contract PPContract is Ownable {
     ) external {
         require(msg.sender == limitOrderProtocol, "only limitOrderProtocol can exec callback");
         makerAsset;
-        takerAsset;
-        makingAmount;
+        takingAmount;
         bytes32 orderHash = abi.decode(interactiveData, (bytes32));
-        _withdrawCompound(orderHash, takingAmount, false); // TODO taking or making???
-        bool filled = false;
-        if (orders[orderHash].remaining == 0) {
-            filled = true;
-            delete orders[orderHash];
-        }
-        emit OrderNotified(orderHash, takingAmount, filled);
+        _withdrawCompound(orderHash, makingAmount, false); // withdraw tokens from compound, send fees to user
+        IERC20(makerAsset).safeApprove(limitOrderProtocol, makingAmount); // approve tokens for limitOrderProtocol
+        emit OrderNotified(orderHash, makingAmount);
     }
 
     /// @notice sends user tokens to Compound and stores asset, amount, user
@@ -97,7 +94,7 @@ contract PPContract is Ownable {
 
     /// @notice withdraws all user funds from Compound, sends funds + fee to user
     function cancelOrder(bytes32 orderHash, LimitOrderProtocol.LOPOrder memory order) external {
-        require(orders[orderHash].user != msg.sender, "only user can cancel order");
+        require(orders[orderHash].user != msg.sender, "invalid user or order not exist");
         
         LimitOrderProtocol(limitOrderProtocol).cancelOrder(order); // cancel in protocol
         _withdrawCompound(orderHash, orders[orderHash].remaining, true); // withdraw all funds from compound
@@ -148,8 +145,24 @@ contract PPContract is Ownable {
         uint256 toTransfer = userFee; // if order is not cancelled then transer just fee
         if (cancel) {
             toTransfer += amountToWithdraw;
+        } else {
+            order.toWithdraw += amountToWithdraw; // user will claim his funds later, contract will send amount tokens to taker
         }
         IERC20(asset).safeTransfer(user, toTransfer); // send to user fee and amount (if order cancelled)
+    }
+
+    /// @notice withdraw funds from orders with hashes in args
+    function withdraw(bytes32[] memory ordersHashes) external {
+        for (uint256 i = 0; i < ordersHashes.length; i++) {
+            Order storage order = orders[ordersHashes[i]];
+            require(order.user == msg.sender, "invalid user/order not exist/order withdrawed");
+            if (order.toWithdraw == 0) {
+                continue;
+            }
+            IERC20(order.asset).transfer(msg.sender, order.toWithdraw);
+            emit OrderWithdrawed(ordersHashes[i], order.toWithdraw);
+            delete orders[ordersHashes[i]];
+        }
     }
 
     /// @notice mock
