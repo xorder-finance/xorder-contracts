@@ -1,9 +1,17 @@
 import pytest
 
 @pytest.fixture()
-def user(accounts):
-    return accounts.add("a4b5bb916ca53954496315445795441332c377f2845a1326b8cad3ffc9b97c41")
+def limitOrderProtocol(LimitOrderProtocolMock, accounts):
+    return LimitOrderProtocolMock.deploy({"from": accounts[0]})
 
 @pytest.fixture()
-def ppcontract(PPContract, user):
-    return PPContract.deploy("0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B", "0xc00e94Cb662C3520282E6f5717214004A7f26888", {"from": user})
+def comptroller(interface):
+    return interface.ComptrollerInterface("0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B")
+
+@pytest.fixture()
+def comp(interface):
+    return interface.CErc20Interface("0xc00e94Cb662C3520282E6f5717214004A7f26888")
+
+@pytest.fixture()
+def ppcontract(PPContract, comptroller, comp, limitOrderProtocol, accounts):
+    return PPContract.deploy(comptroller, comp, limitOrderProtocol, {"from": accounts[0]})
