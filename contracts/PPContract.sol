@@ -18,7 +18,7 @@ contract PPContract is Ownable, EIP712Alien {
     event OrderCreated(address indexed maker, bytes32 orderHash, uint256 amount);
     event OrderCancelled(bytes32 orderHash);
     event OrderNotified(bytes32 orderHash, uint256 amount);
-    event OrderWithdrawed(bytes32 orderHash, uint256 amount);
+    event OrderWithdrawn(bytes32 orderHash, uint256 amount);
 
     struct Order {
         address user;
@@ -157,7 +157,7 @@ contract PPContract is Ownable, EIP712Alien {
                 continue;
             }
             IERC20(order.asset).transfer(msg.sender, order.toWithdraw);
-            emit OrderWithdrawed(ordersHashes[i], order.toWithdraw);
+            emit OrderWithdrawn(ordersHashes[i], order.toWithdraw);
             delete orders[ordersHashes[i]];
         }
     }
