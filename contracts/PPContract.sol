@@ -40,18 +40,6 @@ contract PPContract is Ownable {
         comptroller = _comptroller;
         limitOrderProtocol = _limitOrderProtocol;
         COMP = _comp;
-        
-        address[] memory _cTokens = _comptroller.getAllMarkets(); // get all cTokens and fill mapping ->
-
-        for (uint256 i = 0; i < _cTokens.length; i++) { // <- underlying => cToken
-            CErc20Interface ctoken = CErc20Interface(_cTokens[i]);
-            if (keccak256(bytes(ctoken.name())) == keccak256(bytes("Compound Ether"))) { // ignore cETH
-                continue;
-            }
-            address token = ctoken.underlying();
-            tokens.push(token);
-            cTokens[token] = _cTokens[i];
-        }
     }
     
     /// @notice callback from limit order protocol, executes on order fill
@@ -116,6 +104,41 @@ contract PPContract is Ownable {
         }
     }
 
+    function init() onlyOwner external {
+        if (tokens.length > 0) {
+            return;
+        }
+
+        address[] memory _cTokens = comptroller.getAllMarkets(); // get all cTokens and fill mapping ->
+
+        for (uint256 i = 0; i < _cTokens.length; i++) { // <- underlying => cToken
+            CErc20Interface ctoken = CErc20Interface(_cTokens[i]);
+            if (keccak256(abi.encode(ctoken.name())) == keccak256(abi.encode("Compound ETH"))) { // ignore cETH
+                continue;
+            }
+            if (keccak256(abi.encode(ctoken.name())) == keccak256(abi.encode("Compound Ether"))) { // ignore cETH
+                continue;
+            }
+            address token = ctoken.underlying();
+            tokens.push(token);
+            cTokens[token] = _cTokens[i];
+        }
+    }
+
+    /// @notice withdraw funds from orders with hashes in args
+    function withdraw(bytes32[] memory ordersHashes) external {
+        for (uint256 i = 0; i < ordersHashes.length; i++) {
+            Order storage order = orders[ordersHashes[i]];
+            require(order.user == msg.sender, "invalid user/order not exist/order withdrawed");
+            if (order.toWithdraw == 0) {
+                continue;
+            }
+            IERC20(order.asset).transfer(msg.sender, order.toWithdraw);
+            emit OrderWithdrawed(ordersHashes[i], order.toWithdraw);
+            delete orders[ordersHashes[i]];
+        }
+    }
+
     /// @notice withdraws *amount* underlying from + fee from Compound, sends to user funds
     function _withdrawCompound(bytes32 orderHash, uint256 amount, bool cancel) internal {
         Order storage order = orders[orderHash];
@@ -135,7 +158,7 @@ contract PPContract is Ownable {
         uint256 underlyingBefore = IERC20(asset).balanceOf(address(this));
         order.remaining -= amountToWithdraw;
         order.cRemaining -= cAmount;
-
+ 
         require(cToken.redeem(cAmount) == 0, "comptroller redeem error");
 
         uint256 underlyingAfter = IERC20(asset).balanceOf(address(this));
@@ -149,20 +172,6 @@ contract PPContract is Ownable {
             order.toWithdraw += amountToWithdraw; // user will claim his funds later, contract will send amount tokens to taker
         }
         IERC20(asset).safeTransfer(user, toTransfer); // send to user fee and amount (if order cancelled)
-    }
-
-    /// @notice withdraw funds from orders with hashes in args
-    function withdraw(bytes32[] memory ordersHashes) external {
-        for (uint256 i = 0; i < ordersHashes.length; i++) {
-            Order storage order = orders[ordersHashes[i]];
-            require(order.user == msg.sender, "invalid user/order not exist/order withdrawed");
-            if (order.toWithdraw == 0) {
-                continue;
-            }
-            IERC20(order.asset).transfer(msg.sender, order.toWithdraw);
-            emit OrderWithdrawed(ordersHashes[i], order.toWithdraw);
-            delete orders[ordersHashes[i]];
-        }
     }
 
     /// @notice mock
